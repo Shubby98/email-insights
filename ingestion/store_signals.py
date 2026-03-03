@@ -24,7 +24,7 @@ from parse_csv import parse_emails
 from extract_signals import extract_signals
 
 # Paths relative to the project root
-CSV_PATH = Path(__file__).parent.parent / "data" / "emails.csv"
+CSV_PATH = Path(__file__).parent.parent / "data" / "recent_emails.csv"
 DB_PATH = Path(__file__).parent.parent / "database" / "signals.db"
 
 
@@ -117,7 +117,7 @@ def run_ingestion(csv_path: Path = CSV_PATH, db_path: Path = DB_PATH) -> None:
     failed = 0
 
     for i, email in enumerate(emails, start=1):
-        email_id = email.get("id", str(i))
+        email_id = email.get("id") or f"{email.get('sender_email', '')}_{email.get('date', str(i))}"
         print(f"\n[ingestion] Processing {i}/{len(emails)} — ID: {email_id}")
 
         signals = extract_signals(email)

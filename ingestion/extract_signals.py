@@ -20,13 +20,13 @@ from openai import OpenAI
 # Point the OpenAI client at LM Studio's local server.
 # api_key can be anything — LM Studio doesn't validate it.
 client = OpenAI(
-    base_url="http://localhost:1234/v1",
+    base_url="http://127.0.0.1:10101/v1",
     api_key="lm-studio",
 )
 
 # The exact model string must match what's loaded in LM Studio.
 # LM Studio shows the model identifier in the UI — copy it here.
-LOCAL_MODEL = "local-model"  # Replace with your actual model name, e.g. "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF"
+LOCAL_MODEL = "google/gemma-3-4b"  # Replace with your actual model name, e.g. "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF"
 
 # This is the structured schema we want the LLM to fill in.
 # We embed it directly in the prompt so the model knows exactly what to return.
@@ -58,7 +58,7 @@ Return ONLY a valid JSON object matching this schema — no explanation, no mark
 
 Email:
 Subject: {email.get('subject', '')}
-From: {email.get('from_email', '')}
+From: {email.get('sender_name', '')} <{email.get('sender_email', '')}>
 Body: {email.get('body', '')}
 
 JSON output:"""
@@ -89,15 +89,15 @@ def extract_signals(email: dict) -> dict:
             raw_content = raw_content.strip("`").lstrip("json").strip()
 
         signals = json.loads(raw_content)
-        print(f"  [extract] Email {email.get('id')}: topic={signals.get('topic')}, tone={signals.get('tone')}")
+        print(f"  [extract] Email {email.get('sender_email', email.get('id', '?'))}: topic={signals.get('topic')}, tone={signals.get('tone')}")
         return signals
 
     except json.JSONDecodeError as e:
-        print(f"  [extract] WARNING: Could not parse JSON for email {email.get('id')}: {e}")
+        print(f"  [extract] WARNING: Could not parse JSON for email {email.get('sender_email', email.get('id', '?'))}: {e}")
         return _fallback_signals()
 
     except Exception as e:
-        print(f"  [extract] ERROR processing email {email.get('id')}: {e}")
+        print(f"  [extract] ERROR processing email {email.get('sender_email', email.get('id', '?'))}: {e}")
         return _fallback_signals()
 
 

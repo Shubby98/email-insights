@@ -35,6 +35,6 @@ def parse_emails(csv_path: str) -> list[dict]:
 
 # Run standalone to verify the CSV loads correctly
 if __name__ == "__main__":
-    emails = parse_emails("../data/emails.csv")
+    emails = parse_emails("data/recent_emails.csv")
     for e in emails:
-        print(f"  [{e['id']}] {e['subject'][:50]}...")
+        print(f"  [{e['sender_name']}] {e['subject'][:50]}...")
