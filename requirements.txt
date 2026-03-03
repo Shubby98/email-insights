@@ -1,0 +1,12 @@
+# MCP Python SDK — the official SDK for building MCP servers
+# Provides FastMCP, the @mcp.tool() decorator, and the stdio transport
+# Install: pip install mcp
+mcp>=1.0.0
+
+# OpenAI Python client — used to call LM Studio's OpenAI-compatible API
+# LM Studio exposes POST /v1/chat/completions, which this client speaks natively
+# Install: pip install openai
+openai>=1.0.0
+
+# Note: sqlite3 is part of Python's standard library — no install needed.
+# It's used in tools.py and store_signals.py to read/write signals.db.
