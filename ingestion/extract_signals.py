@@ -15,18 +15,71 @@ Why a local LLM?
 """
 
 import json
+import requests
 from openai import OpenAI
+
+LM_STUDIO_BASE = "http://127.0.0.1:10101"
 
 # Point the OpenAI client at LM Studio's local server.
 # api_key can be anything — LM Studio doesn't validate it.
 client = OpenAI(
-    base_url="http://127.0.0.1:10101/v1",
+    base_url=f"{LM_STUDIO_BASE}/v1",
     api_key="lm-studio",
 )
 
 # The exact model string must match what's loaded in LM Studio.
 # LM Studio shows the model identifier in the UI — copy it here.
 LOCAL_MODEL = "google/gemma-3-4b"  # Replace with your actual model name, e.g. "lmstudio-community/Meta-Llama-3-8B-Instruct-GGUF"
+
+def ensure_model_loaded(model: str = LOCAL_MODEL) -> None:
+    """
+    Auto-load the model in LM Studio if it isn't already active.
+
+    1. GET /v1/models  — OpenAI-compatible endpoint lists only loaded models.
+    2. If our model is missing, POST /api/v0/models/load to load it.
+       LM Studio's load call is synchronous — it returns once the model is ready.
+    """
+    try:
+        resp = requests.get(f"{LM_STUDIO_BASE}/v1/models", timeout=10)
+        resp.raise_for_status()
+        loaded_ids = [m["id"] for m in resp.json().get("data", [])]
+
+        if any(model in mid or mid in model for mid in loaded_ids):
+            print(f"[lmstudio] Model '{model}' is already loaded.")
+            return
+
+        print(f"[lmstudio] Model not loaded — loading '{model}' (this may take a moment)...")
+        load_resp = requests.post(
+            f"{LM_STUDIO_BASE}/api/v0/models/load",
+            json={"identifier": model},
+            timeout=180,  # large models can take a while
+        )
+        load_resp.raise_for_status()
+        print(f"[lmstudio] Model loaded successfully.")
+
+    except requests.ConnectionError:
+        print(f"[lmstudio] ERROR: Cannot connect to LM Studio at {LM_STUDIO_BASE}.")
+        print("  Make sure LM Studio is open and the local server is running.")
+        raise SystemExit(1)
+
+    except Exception as e:
+        print(f"[lmstudio] WARNING: Could not auto-load model: {e}")
+        raise
+
+
+def unload_model(model: str = LOCAL_MODEL) -> None:
+    """Unload the model from LM Studio to free up VRAM/RAM after the pipeline finishes."""
+    try:
+        resp = requests.post(
+            f"{LM_STUDIO_BASE}/api/v0/models/unload",
+            json={"identifier": model},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        print(f"[lmstudio] Model '{model}' unloaded.")
+    except Exception as e:
+        print(f"[lmstudio] WARNING: Could not unload model: {e}")
+
 
 # This is the structured schema we want the LLM to fill in.
 # We embed it directly in the prompt so the model knows exactly what to return.

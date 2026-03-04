@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from parse_csv import parse_emails
-from extract_signals import extract_signals
+from extract_signals import extract_signals, ensure_model_loaded, unload_model
 
 # Paths relative to the project root
 CSV_PATH = Path(__file__).parent.parent / "data" / "recent_emails.csv"
@@ -106,6 +106,9 @@ def run_ingestion(csv_path: Path = CSV_PATH, db_path: Path = DB_PATH) -> None:
     print(f"  CSV:      {csv_path}")
     print(f"  Database: {db_path}")
 
+    # Ensure the LLM is loaded in LM Studio before processing
+    ensure_model_loaded()
+
     # Load all emails from CSV
     emails = parse_emails(str(csv_path))
 
@@ -133,6 +136,7 @@ def run_ingestion(csv_path: Path = CSV_PATH, db_path: Path = DB_PATH) -> None:
     conn.close()
     print(f"\n[ingestion] Done! {processed} emails stored, {failed} failed.")
     print(f"[ingestion] Database saved to: {db_path}")
+    unload_model()
 
 
 if __name__ == "__main__":
