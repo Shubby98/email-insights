@@ -24,3 +24,6 @@ data/
 # IDE
 .vscode/
 .idea/
+
+# Logs
+logs/
