@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/shubby/Desktop/UB/Agent/email-insights status)",
+      "Bash(git -C /Users/shubby/Desktop/UB/Agent/email-insights remote -v)",
+      "Bash(gh auth status)",
+      "Bash(gh repo create email-insights --public --description \"MCP server for email signal analytics\" --source /Users/shubby/Desktop/UB/Agent/email-insights --remote origin)",
+      "Bash(git add .gitignore ingestion/extract_signals.py ingestion/parse_csv.py ingestion/store_signals.py)",
+      "Bash(git -C /Users/shubby/Desktop/UB/Agent/email-insights diff)",
+      "Bash(sqlite3:*)",
+      "Bash(python:*)",
+      "Bash(source env/bin/activate)"
+    ]
+  }
+}

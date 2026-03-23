@@ -1,0 +1,15 @@
+{
+    "hooks": {
+        "PreToolUse": [
+            {
+                "matcher": "Read|Grep",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "python3 /Users/shubby/Desktop/UB/Agent/email-insights/.claude/hooks/block-file-reads.py"
+                    }
+                ]
+            }
+        ]
+    }
+}
