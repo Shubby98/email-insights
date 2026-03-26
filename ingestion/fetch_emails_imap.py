@@ -1,8 +1,8 @@
 """
 fetch_emails_imap.py
 --------------------
-Fetches emails from an IMAP server and saves them to a CSV file
-in the same format expected by the ingestion pipeline (parse_csv.py).
+Fetches emails from an IMAP server and stores them in SQLite (raw_emails table).
+Optionally saves a CSV copy with --output.
 
 Reads credentials from .env at the project root:
     IMAP_HOST     — e.g., imap.gmail.com
@@ -12,14 +12,11 @@ Reads credentials from .env at the project root:
     IMAP_MAILBOX  — (optional) defaults to INBOX
 
 Usage:
-    # Test: fetch only the 10 most recent emails
+    # Fetch 10 most recent emails → stored in database/signals.db (raw_emails table)
     python ingestion/fetch_emails_imap.py --limit 10
 
-    # Fetch to a custom output file
-    python ingestion/fetch_emails_imap.py --limit 20 --output data/my_emails.csv
-
-    # Fetch and immediately run the full ingestion pipeline (signals → SQLite)
-    python ingestion/fetch_emails_imap.py --limit 10 --ingest
+    # Also save a CSV copy
+    python ingestion/fetch_emails_imap.py --limit 10 --output data/my_emails.csv
 """
 
 import argparse
@@ -33,12 +30,14 @@ from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
+from tqdm import tqdm
 import os
 
 # Load .env from project root (two levels up from ingestion/)
 load_dotenv(Path(__file__).parent.parent / ".env")
 
-DEFAULT_OUTPUT = Path(__file__).parent.parent / "data" / "fetched_emails.csv"
+# Allow importing the project-level db/ package
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 # ---------------------------------------------------------------------------
@@ -179,34 +178,36 @@ def fetch_emails(limit: int | None = None) -> list[dict]:
     print(f"[imap] Found {len(all_ids)} emails in {mailbox}. Fetching {len(ids_to_fetch)}...")
 
     emails = []
-    for i, uid in enumerate(ids_to_fetch, start=1):
-        _, msg_data = mail.fetch(uid, "(RFC822)")
-        raw = msg_data[0][1]
-        msg = email_lib.message_from_bytes(raw)
+    with tqdm(total=len(ids_to_fetch), desc="Fetching", unit="email") as bar:
+        for uid in ids_to_fetch:
+            _, msg_data = mail.fetch(uid, "(RFC822)")
+            raw = msg_data[0][1]
+            msg = email_lib.message_from_bytes(raw)
 
-        # Parse From header → name + address
-        raw_from = decode_mime_words(msg.get("From", ""))
-        sender_name, sender_email = parseaddr(raw_from)
-        sender_name = sender_name or sender_email  # fallback if no display name
+            # Parse From header → name + address
+            raw_from = decode_mime_words(msg.get("From", ""))
+            sender_name, sender_email = parseaddr(raw_from)
+            sender_name = sender_name or sender_email  # fallback if no display name
 
-        # Parse date
-        raw_date = msg.get("Date", "")
-        try:
-            date_iso = parsedate_to_datetime(raw_date).isoformat()
-        except Exception:
-            date_iso = raw_date  # keep raw if parse fails
+            # Parse date
+            raw_date = msg.get("Date", "")
+            try:
+                date_iso = parsedate_to_datetime(raw_date).isoformat()
+            except Exception:
+                date_iso = raw_date  # keep raw if parse fails
 
-        subject = decode_mime_words(msg.get("Subject", "(no subject)"))
-        body = extract_body(msg)
+            subject = decode_mime_words(msg.get("Subject", "(no subject)"))
+            body = extract_body(msg)
 
-        emails.append({
-            "date": date_iso,
-            "sender_name": sender_name,
-            "sender_email": sender_email,
-            "subject": subject,
-            "body": body,
-        })
-        print(f"  [{i}/{len(ids_to_fetch)}] {sender_name} — {subject[:60]}")
+            emails.append({
+                "date": date_iso,
+                "sender_name": sender_name,
+                "sender_email": sender_email,
+                "subject": subject,
+                "body": body,
+            })
+            bar.set_postfix_str(subject[:50], refresh=False)
+            bar.update(1)
 
     mail.logout()
     print(f"[imap] Done. Fetched {len(emails)} emails.")
@@ -214,7 +215,7 @@ def fetch_emails(limit: int | None = None) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# CSV writer
+# CSV writer (optional export)
 # ---------------------------------------------------------------------------
 
 def save_to_csv(emails: list[dict], output_path: Path) -> None:
@@ -225,7 +226,7 @@ def save_to_csv(emails: list[dict], output_path: Path) -> None:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(emails)
-    print(f"[imap] Saved to {output_path}")
+    print(f"[imap] Saved CSV to {output_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -234,19 +235,15 @@ def save_to_csv(emails: list[dict], output_path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Fetch emails via IMAP and save to CSV."
+        description="Fetch emails via IMAP and store in SQLite."
     )
     parser.add_argument(
         "--limit", type=int, default=None,
         help="Max number of emails to fetch (most recent first). Omit for all."
     )
     parser.add_argument(
-        "--output", type=Path, default=DEFAULT_OUTPUT,
-        help=f"Output CSV path. Default: {DEFAULT_OUTPUT}"
-    )
-    parser.add_argument(
-        "--ingest", action="store_true",
-        help="After fetching, run the full ingestion pipeline (LM Studio → SQLite)."
+        "--output", type=Path, default=None,
+        help="Optional CSV path to also save a copy of fetched emails."
     )
     parser.add_argument(
         "--count", action="store_true",
@@ -270,14 +267,18 @@ def main() -> None:
         return
 
     emails = fetch_emails(limit=args.limit)
-    save_to_csv(emails, args.output)
 
-    if args.ingest:
-        print("\n[imap] --ingest flag set. Starting ingestion pipeline...")
-        # Allow importing sibling modules
-        sys.path.insert(0, str(Path(__file__).parent))
-        from store_signals import run_ingestion
-        run_ingestion(csv_path=args.output)
+    import db.raw_emails as db_raw
+    db_raw.init_table()
+    with tqdm(total=len(emails), desc="Storing ", unit="email") as bar:
+        for email in emails:
+            db_raw.store(email)
+            bar.set_postfix_str(email["subject"][:50], refresh=False)
+            bar.update(1)
+    print(f"[imap] Stored {len(emails)} emails to database/signals.db (raw_emails)")
+
+    if args.output:
+        save_to_csv(emails, args.output)
 
 
 if __name__ == "__main__":

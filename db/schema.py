@@ -27,6 +27,23 @@ def init_signals_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def init_raw_emails_table(conn: sqlite3.Connection) -> None:
+    """Create the raw_emails table if it doesn't exist."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS raw_emails (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_id     TEXT    UNIQUE,
+            date         TEXT,
+            sender_name  TEXT,
+            sender_email TEXT,
+            subject      TEXT,
+            body         TEXT,
+            fetched_at   TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+
+
 def init_jobs_tables(conn: sqlite3.Connection) -> None:
     """Create jobs and failed_extractions tables if they don't exist."""
     conn.executescript("""

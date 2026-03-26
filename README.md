@@ -10,7 +10,14 @@ email-insights/
 │   └── emails.csv              # Raw email data (id, from, subject, body, date)
 ├── database/
 │   └── signals.db              # SQLite database (created after running ingestion)
+├── db/
+│   ├── connection.py           # Single source of truth for SQLite connections
+│   ├── schema.py               # DDL for all tables (idempotent CREATE IF NOT EXISTS)
+│   ├── signals.py              # Read/write for signals table
+│   ├── raw_emails.py           # Read/write for raw_emails table
+│   └── jobs.py                 # Read/write for jobs and failed_extractions tables
 ├── ingestion/
+│   ├── fetch_emails_imap.py    # Fetch emails via IMAP → store raw in SQLite
 │   ├── parse_csv.py            # Step 1: Load emails from CSV
 │   ├── extract_signals.py      # Step 2: Call local LLM to extract signals
 │   └── store_signals.py        # Step 3: Write signals to SQLite (run this)
@@ -35,14 +42,49 @@ email-insights/
 pip install -r requirements.txt
 ```
 
-### 2. Start LM Studio
+### 2. Configure IMAP credentials
+
+Copy `.env.example` to `.env` and fill in your credentials:
+
+```
+IMAP_HOST=imap.gmail.com
+IMAP_USER=you@gmail.com
+IMAP_PASSWORD=your-app-specific-password
+IMAP_PORT=993          # optional, default 993
+IMAP_MAILBOX=INBOX     # optional, default INBOX
+```
+
+For Gmail, generate an app-specific password at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
+
+### 3. Fetch emails into SQLite
+
+Fetch all emails from your inbox and store them in the `raw_emails` table:
+
+```bash
+python ingestion/fetch_emails_imap.py
+```
+
+A progress bar shows live fetch and store status. Options:
+
+```bash
+# Fetch only the 50 most recent emails
+python ingestion/fetch_emails_imap.py --limit 50
+
+# Also export a CSV backup
+python ingestion/fetch_emails_imap.py --output data/backup.csv
+
+# Count emails in a date range (no fetch)
+python ingestion/fetch_emails_imap.py --count --start-date 2025-01-01 --end-date 2025-03-01
+```
+
+### 4. Start LM Studio
 
 - Open LM Studio and load any instruction-following model (Llama 3, Mistral, etc.)
 - Start the local server: **Local Server → Start Server**
 - Default URL: `http://127.0.0.1:10101`
 - Copy the model identifier string and paste it into `ingestion/extract_signals.py` as `LOCAL_MODEL`
 
-### 3. Run the ingestion pipeline
+### 5. Run signal extraction
 
 ```bash
 python ingestion/store_signals.py
@@ -51,7 +93,7 @@ python ingestion/store_signals.py
 This reads `data/emails.csv`, sends each email to your local LLM for signal extraction,
 and stores the results in `database/signals.db`.
 
-### 4. Start the background worker
+### 6. Start the background worker
 
 The worker is a separate process that polls for scheduled extraction jobs. Run it in a dedicated terminal:
 
@@ -61,7 +103,7 @@ python worker/job_runner.py
 
 The worker logs all activity to `logs/worker.log` and to stderr. It polls SQLite every 10 seconds and picks up any pending or due-scheduled jobs automatically.
 
-### 5. Connect Claude Desktop
+### 7. Connect Claude Desktop
 
 Add this server to your Claude Desktop config:
 
@@ -128,6 +170,17 @@ The MCP server and worker are **two completely separate processes** that share o
 ## SQLite Schema
 
 ```sql
+CREATE TABLE raw_emails (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    email_id     TEXT    UNIQUE,    -- SHA-256(date|sender_name|sender_email)[:16]
+    date         TEXT,              -- ISO format from email Date header
+    sender_name  TEXT,
+    sender_email TEXT,
+    subject      TEXT,
+    body         TEXT,
+    fetched_at   TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE signals (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     email_id        TEXT    UNIQUE,
@@ -204,6 +257,13 @@ The log file rotates at 5 MB and keeps the last 3 files (`worker.log`, `worker.l
 - `get_logger(name)` is idempotent — safe to call from any module, no duplicate handlers
 - `RotatingFileHandler` prevents unbounded disk growth
 - Uses `sys.stderr` for the stream handler — `sys.stdout` is reserved for MCP's JSON-RPC protocol
+
+### `ingestion/fetch_emails_imap.py`
+- `imaplib.IMAP4_SSL` — connects to any IMAP server; credentials loaded from `.env`
+- `mail.search(None, "ALL")` returns all message IDs; reversed for most-recent-first order
+- `tqdm` progress bars show live fetch and SQLite store status with current subject as suffix
+- Stores to `raw_emails` table via `db.raw_emails` — idempotent (`INSERT OR REPLACE`)
+- `--output` is optional: CSV is only written when explicitly passed
 
 ### `ingestion/extract_signals.py`
 - `OpenAI(base_url="http://127.0.0.1:10101/v1")` — points the client at LM Studio
