@@ -25,8 +25,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from openai import OpenAI
-
 # ---------------------------------------------------------------------------
 # Path setup — resolve project root regardless of where we're called from
 # ---------------------------------------------------------------------------
@@ -35,6 +33,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import db.jobs as db_jobs
 import db.signals as db_signals
+import locallm
 from db.signals import make_email_id
 from utils.logger import get_logger
 
@@ -44,9 +43,6 @@ logger = get_logger("worker")
 # Config
 # ---------------------------------------------------------------------------
 CSV_PATH = PROJECT_ROOT / "data" / "recent_emails.csv"
-
-LM_STUDIO_BASE = "http://127.0.0.1:10101"
-DEFAULT_MODEL = "google/gemma-3-4b"
 
 POLL_INTERVAL = 10  # seconds between polls
 
@@ -58,16 +54,6 @@ DEFAULT_EXTRACTION_SCHEMA = """{
   "requires_action": true or false,
   "urgency": "high | medium | low"
 }"""
-
-# ---------------------------------------------------------------------------
-# LM Studio client (module-level; recreated if connection is lost)
-# ---------------------------------------------------------------------------
-lm_client = OpenAI(
-    base_url=f"{LM_STUDIO_BASE}/v1",
-    api_key="lm-studio",
-    timeout=60.0,
-)
-
 
 # ---------------------------------------------------------------------------
 # Email loading (CSV — no DB)
@@ -110,7 +96,7 @@ def load_schema(schema_id: int | None) -> str:
 
 
 # ---------------------------------------------------------------------------
-# LM Studio extraction with retry
+# Extraction with retry
 # ---------------------------------------------------------------------------
 
 def _build_prompt(email: dict, schema: str) -> str:
@@ -127,30 +113,16 @@ Body: {email.get('body', '')}
 JSON output:"""
 
 
-def _call_lm_studio(email: dict, schema: str) -> dict:
+def _call_llm(email: dict, schema: str) -> dict:
     """
-    One attempt to extract signals from an email via LM Studio.
+    One attempt to extract signals from an email via the local LLM.
 
     Raises:
-        requests.exceptions.Timeout  — for connection/read timeouts
-        json.JSONDecodeError          — for malformed LLM output
-        Exception                     — for any other LM Studio error
+        json.JSONDecodeError  — for malformed LLM output
+        Exception             — for any other provider error
     """
     prompt = _build_prompt(email, schema)
-
-    response = lm_client.chat.completions.create(
-        model=DEFAULT_MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.1,
-        max_tokens=256,
-    )
-
-    raw = response.choices[0].message.content.strip()
-
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        raw = raw.strip("`").lstrip("json").strip()
-
+    raw = locallm.complete(prompt)
     return json.loads(raw)  # raises JSONDecodeError if malformed
 
 
@@ -171,7 +143,7 @@ def extract_with_retry(
 
     for attempt in range(2):
         try:
-            signals = _call_lm_studio(email, schema)
+            signals = _call_llm(email, schema)
             return signals, None
 
         except (json.JSONDecodeError, Exception) as e:

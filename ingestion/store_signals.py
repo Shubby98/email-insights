@@ -21,9 +21,10 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(Path(__file__).parent))
 
 import db.signals as db_signals
+import locallm
 from db.signals import make_email_id
 from parse_csv import parse_emails
-from extract_signals import extract_signals, ensure_model_loaded, unload_model
+from extract_signals import extract_signals
 
 CSV_PATH = _PROJECT_ROOT / "data" / "recent_emails.csv"
 
@@ -36,7 +37,7 @@ def run_ingestion(csv_path: Path = CSV_PATH) -> None:
     print(f"[ingestion] Starting pipeline...")
     print(f"  CSV: {csv_path}")
 
-    ensure_model_loaded()
+    locallm.load_model()
 
     emails = parse_emails(str(csv_path))
 
@@ -59,7 +60,7 @@ def run_ingestion(csv_path: Path = CSV_PATH) -> None:
         processed += 1
 
     print(f"\n[ingestion] Done! {processed} emails stored, {failed} failed.")
-    unload_model()
+    locallm.unload_model()
 
 
 if __name__ == "__main__":

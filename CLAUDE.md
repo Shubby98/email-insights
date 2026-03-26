@@ -48,16 +48,25 @@ Or skip IMAP and start from an existing CSV (`data/recent_emails.csv`).
 
 ## Key Configuration
 
-Two hardcoded constants that must match your LM Studio setup:
+LLM provider is configured via env vars (or `.env` file). All config lives in `utils/llm_config.py`.
 
-| File | Constant | Value |
-|------|----------|-------|
-| `ingestion/extract_signals.py` | `LM_STUDIO_BASE` | `http://127.0.0.1:10101` |
-| `ingestion/extract_signals.py` | `LOCAL_MODEL` | `google/gemma-3-4b` |
-| `worker/job_runner.py` | `LM_STUDIO_BASE` | `http://127.0.0.1:10101` |
-| `worker/job_runner.py` | `DEFAULT_MODEL` | `google/gemma-3-4b` |
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `LLM_PROVIDER` | `lmstudio` | `lmstudio` or `ollama` |
+| `LLM_MODEL` | _(provider default)_ | Override model name |
+| `LLM_BASE_URL` | _(provider default)_ | Override base URL |
 
-LM Studio must be running with the model loaded before ingestion or job processing.
+Provider defaults:
+- `lmstudio`: `http://127.0.0.1:10101/v1`, model `google/gemma-3-4b`
+- `ollama`: `http://localhost:11434/v1`, model `gemma3:4b`
+
+```bash
+# Use Ollama instead of LM Studio:
+LLM_PROVIDER=ollama python ingestion/store_signals.py
+LLM_PROVIDER=ollama LLM_MODEL=llama3.2 python worker/job_runner.py
+```
+
+LM Studio auto-loads the model if not already running. Ollama loads models automatically on the first call.
 
 ## MCP Tools (server.py → tools.py)
 
